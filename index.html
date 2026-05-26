@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlayBridge — Spotify ↔ YouTube</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:#0a0a0f;--surface:#111118;--card:#16161f;--border:#252535;
+      --spotify:#1db954;--youtube:#ff0000;--accent:#7c6fff;
+      --text:#e8e8f0;--muted:#6a6a80;--success:#1db954;--error:#ff4040;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(124,111,255,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(124,111,255,.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+    .container{max-width:860px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+    header{padding:48px 0 32px;text-align:center}
+    .logo{font-size:13px;font-family:'Space Mono',monospace;letter-spacing:4px;color:var(--muted);text-transform:uppercase;margin-bottom:16px}
+    h1{font-size:clamp(32px,8vw,64px);font-weight:800;line-height:1;letter-spacing:-2px}
+    h1 .sp{color:var(--spotify)}h1 .yt{color:var(--youtube)}h1 .arrow{color:var(--accent);font-size:.7em}
+    .tagline{margin-top:12px;color:var(--muted);font-size:15px;font-family:'Space Mono',monospace}
+    /* KEYS */
+    .keys-section{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:28px}
+    .keys-header{display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none}
+    .keys-title{font-size:14px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:1px}
+    .keys-toggle{font-size:20px;color:var(--muted);transition:transform .2s}
+    .keys-toggle.open{transform:rotate(180deg)}
+    .keys-body{display:none;margin-top:20px}
+    .keys-body.visible{display:block}
+    .keys-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    @media(max-width:600px){.keys-grid{grid-template-columns:1fr}}
+    .key-group label{display:block;font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:1px;margin-bottom:6px}
+    .key-group input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;outline:none;transition:border-color .2s}
+    .key-group input:focus{border-color:var(--accent)}
+    .keys-hint{margin-top:14px;font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);line-height:1.8}
+    .keys-hint a{color:var(--accent)}
+    .keys-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;align-items:center}
+    .save-keys-btn,.sp-login-btn,.sp-logout-btn{padding:10px 20px;border:none;border-radius:8px;font-family:'Space Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s}
+    .save-keys-btn{background:var(--accent);color:#fff}
+    .save-keys-btn:hover{opacity:.85}
+    .sp-login-btn{background:var(--spotify);color:#000;font-weight:700}
+    .sp-login-btn:hover{opacity:.85}
+    .sp-logout-btn{background:var(--surface);color:var(--muted);border:1px solid var(--border)}
+    .sp-logout-btn:hover{border-color:var(--error);color:var(--error)}
+    .sp-status-badge{font-size:11px;font-family:'Space Mono',monospace;padding:6px 12px;border-radius:6px;background:rgba(29,185,84,.1);color:var(--spotify);border:1px solid rgba(29,185,84,.2)}
+    /* MODE */
+    .mode-switch{display:flex;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:4px;margin-bottom:28px;gap:4px}
+    .mode-btn{flex:1;padding:12px;border:none;border-radius:9px;background:transparent;color:var(--muted);font-family:'Syne',sans-serif;font-weight:700;font-size:14px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px}
+    .mode-btn.active-sp{background:linear-gradient(135deg,#1a2e22,#1a3e2a);color:var(--spotify);border:1px solid rgba(29,185,84,.3)}
+    .mode-btn.active-yt{background:linear-gradient(135deg,#2a1a1a,#3a1a1a);color:var(--youtube);border:1px solid rgba(255,0,0,.3)}
+    /* INPUT */
+    .input-card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:28px}
+    .input-label{font-size:11px;font-family:'Space Mono',monospace;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+    .input-row{display:flex;gap:12px}
+    .url-input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;outline:none;transition:border-color .2s;min-width:0}
+    .url-input:focus{border-color:var(--accent)}
+    .url-input::placeholder{color:var(--muted)}
+    .convert-btn{padding:14px 24px;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;cursor:pointer;transition:all .2s;white-space:nowrap;flex-shrink:0}
+    .convert-btn.sp{background:var(--spotify);color:#000}
+    .convert-btn.yt{background:var(--youtube);color:#fff}
+    .convert-btn:hover{opacity:.85;transform:translateY(-1px)}
+    .convert-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+    .status-bar{display:none;align-items:center;gap:10px;padding:14px 18px;background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-top:16px;font-family:'Space Mono',monospace;font-size:12px}
+    .status-bar.visible{display:flex}
+    .status-bar.error{border-color:var(--error);color:var(--error)}
+    .status-bar.success{border-color:var(--success);color:var(--success)}
+    .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .progress-wrap{display:none;margin-top:12px;height:4px;background:var(--border);border-radius:99px;overflow:hidden}
+    .progress-wrap.visible{display:block}
+    .progress-bar{height:100%;background:var(--accent);border-radius:99px;transition:width .3s;width:0%}
+    /* RESULTS */
+    #results{display:none}
+    #results.visible{display:block}
+    .results-header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px}
+    .results-meta h2{font-size:24px;font-weight:800;letter-spacing:-.5px}
+    .results-meta .stats{font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);margin-top:4px}
+    .results-actions{display:flex;gap:10px;flex-wrap:wrap}
+    .action-btn{padding:10px 18px;border-radius:8px;font-family:'Space Mono',monospace;font-size:12px;cursor:pointer;transition:all .2s;border:1px solid var(--border);background:var(--surface);color:var(--text);text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+    .action-btn:hover{border-color:var(--accent);color:var(--accent)}
+    .action-btn.primary{background:var(--youtube);border-color:var(--youtube);color:#fff}
+    .action-btn.primary:hover{opacity:.85;color:#fff}
+    .track-list{display:flex;flex-direction:column;gap:8px;margin-bottom:48px}
+    .track-item{display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:14px;padding:14px 16px;background:var(--card);border:1px solid var(--border);border-radius:12px;transition:border-color .2s;animation:fadeIn .3s ease forwards;opacity:0}
+    @keyframes fadeIn{to{opacity:1}}
+    .track-item.found{border-left:3px solid var(--success)}
+    .track-item.not-found{border-left:3px solid var(--error);opacity:.6}
+    .track-num{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);text-align:center}
+    .track-info{min-width:0}
+    .track-name{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .track-artist{font-size:12px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .track-status{display:flex;align-items:center;gap:8px;flex-shrink:0}
+    .track-link{font-size:11px;font-family:'Space Mono',monospace;padding:5px 10px;border-radius:6px;text-decoration:none;transition:opacity .2s}
+    .track-link.yt{background:rgba(255,0,0,.15);color:var(--youtube);border:1px solid rgba(255,0,0,.2)}
+    .track-link.sp{background:rgba(29,185,84,.15);color:var(--spotify);border:1px solid rgba(29,185,84,.2)}
+    .track-link:hover{opacity:.8}
+    .not-found-badge{font-size:11px;font-family:'Space Mono',monospace;color:var(--error);padding:5px 10px;border-radius:6px;background:rgba(255,64,64,.1);border:1px solid rgba(255,64,64,.2)}
+    .track-mini-spinner{width:12px;height:12px;border:2px solid rgba(255,255,255,.1);border-top-color:var(--muted);border-radius:50%;animation:spin .7s linear infinite}
+    .playlist-info{display:flex;gap:16px;align-items:center;padding:16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:24px}
+    .playlist-thumb{width:64px;height:64px;border-radius:8px;object-fit:cover;flex-shrink:0}
+    .playlist-thumb-placeholder{width:64px;height:64px;background:var(--card);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+    .playlist-details h3{font-size:16px;font-weight:700}
+    .playlist-details p{font-size:12px;color:var(--muted);font-family:'Space Mono',monospace;margin-top:4px}
+    .yt-result-box{background:linear-gradient(135deg,#1a0a0a,#2a0a0a);border:1px solid rgba(255,0,0,.3);border-radius:12px;padding:20px;margin-bottom:20px;display:none}
+    .yt-result-box.visible{display:block}
+    .yt-result-box h3{font-size:14px;color:var(--youtube);font-family:'Space Mono',monospace;margin-bottom:10px}
+    .yt-result-box a{color:var(--text);font-family:'Space Mono',monospace;font-size:13px;word-break:break-all}
+    footer{text-align:center;padding:48px 0 32px;font-size:11px;font-family:'Space Mono',monospace;color:var(--muted)}
+    footer a{color:var(--accent)}
+    /* Login required overlay */
+    .login-prompt{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid rgba(124,111,255,.3);border-radius:12px;padding:24px;margin-top:16px;text-align:center;display:none}
+    .login-prompt.visible{display:block}
+    .login-prompt p{font-size:13px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:16px;line-height:1.6}
+    .login-prompt-btn{display:inline-block;padding:12px 28px;background:var(--spotify);color:#000;border:none;border-radius:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:15px;cursor:pointer;transition:opacity .2s}
+    .login-prompt-btn:hover{opacity:.85}
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">// PlayBridge</div>
+    <h1><span class="sp">Spotify</span> <span class="arrow"> ⇄ </span><span class="yt">YouTube</span></h1>
+    <p class="tagline">Convierte listas de reproducción entre plataformas</p>
+  </header>
+
+  <!-- API KEYS -->
+  <div class="keys-section">
+    <div class="keys-header" onclick="toggleKeys()">
+      <span class="keys-title">⚙ Configuración de API Keys</span>
+      <span class="keys-toggle" id="keysArrow">▼</span>
+    </div>
+    <div class="keys-body" id="keysBody">
+      <div class="keys-grid">
+        <div class="key-group">
+          <label>SPOTIFY CLIENT ID</label>
+          <input type="text" id="spotifyClientId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+        <div class="key-group">
+          <label>YOUTUBE API KEY</label>
+          <input type="password" id="youtubeApiKey" placeholder="AIzaSy..." />
+        </div>
+      </div>
+      <div class="keys-row">
+        <button class="save-keys-btn" onclick="saveKeys()">💾 Guardar</button>
+        <button class="sp-login-btn" onclick="startSpotifyLogin()" id="spotifyLoginBtn">🔑 Conectar con Spotify</button>
+        <button class="sp-logout-btn" onclick="logoutSpotify()" id="spotifyLogoutBtn" style="display:none">Desconectar Spotify</button>
+      </div>
+      <p class="keys-hint">
+        🎵 <strong>Spotify Client ID:</strong> <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a> → Crea app → Client ID<br>
+        &nbsp;&nbsp;&nbsp;En Settings de tu app, añade como Redirect URI: <strong id="redirectUriDisplay">esta página</strong><br>
+        📺 <strong>YouTube API Key:</strong> <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank">Google Cloud Console</a> → Habilitar YouTube Data API v3 → Credenciales → Clave de API
+      </p>
+    </div>
+  </div>
+
+  <!-- MODE SWITCHER -->
+  <div class="mode-switch">
+    <button class="mode-btn active-sp" id="btnStoY" onclick="setMode('sp2yt')">🎵 Spotify → YouTube 📺</button>
+    <button class="mode-btn" id="btnYtoS" onclick="setMode('yt2sp')">📺 YouTube → Spotify 🎵</button>
+  </div>
+
+  <!-- INPUT -->
+  <div class="input-card">
+    <div class="input-label" id="inputLabel">ENLACE DE PLAYLIST DE SPOTIFY</div>
+    <div class="input-row">
+      <input type="text" class="url-input" id="urlInput" placeholder="https://open.spotify.com/playlist/..." />
+      <button class="convert-btn sp" id="convertBtn" onclick="startConvert()">Convertir →</button>
+    </div>
+    <div class="status-bar" id="statusBar">
+      <div class="spinner" id="statusSpinner"></div>
+      <span id="statusText">Procesando...</span>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <!-- Login prompt shown when not authenticated -->
+    <div class="login-prompt" id="loginPrompt">
+      <p>Para leer playlists de Spotify necesitas conectar tu cuenta.<br>Es seguro — solo pide permiso de lectura de playlists.</p>
+      <button class="login-prompt-btn" onclick="startSpotifyLogin()">🔑 Conectar con Spotify</button>
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results">
+    <div class="playlist-info" id="playlistInfo"></div>
+    <div class="yt-result-box" id="ytResultBox">
+      <h3>▶ PLAYLIST DE YOUTUBE CREADA</h3>
+      <div id="ytPlaylistLink"></div>
+    </div>
+    <div class="results-header">
+      <div class="results-meta">
+        <h2 id="resultsTitle">Canciones encontradas</h2>
+        <div class="stats" id="resultsStats"></div>
+      </div>
+      <div class="results-actions" id="resultsActions"></div>
+    </div>
+    <div class="track-list" id="trackList"></div>
+  </div>
+
+</div>
+<footer>
+  PlayBridge — Convierte playlists entre Spotify y YouTube<br>
+  <a href="https://developer.spotify.com/dashboard" target="_blank">Spotify API</a> · <a href="https://console.cloud.google.com" target="_blank">YouTube API</a>
+</footer>
+
+<script>
+let mode = 'sp2yt', tracks = [], foundTracks = [];
+
+// ── KEYS UI ────────────────────────────────────────────────
+function loadKeys() {
+  document.getElementById('spotifyClientId').value = localStorage.getItem('sp_client_id') || '';
+  document.getElementById('youtubeApiKey').value = localStorage.getItem('yt_api_key') || '';
+  document.getElementById('redirectUriDisplay').textContent = location.href.split('?')[0].split('#')[0];
+}
+function saveKeys() {
+  localStorage.setItem('sp_client_id', document.getElementById('spotifyClientId').value.trim());
+  localStorage.setItem('yt_api_key', document.getElementById('youtubeApiKey').value.trim());
+  setStatus('✓ Claves guardadas', 'success', false);
+  setTimeout(hideStatus, 2000);
+}
+function toggleKeys() {
+  document.getElementById('keysBody').classList.toggle('visible');
+  document.getElementById('keysArrow').classList.toggle('open');
+}
+function updateSpotifyLoginUI() {
+  const ok = isSpotifyLoggedIn();
+  document.getElementById('spotifyLoginBtn').textContent = ok ? '✓ Spotify conectado' : '🔑 Conectar con Spotify';
+  document.getElementById('spotifyLoginBtn').style.background = ok ? 'var(--spotify)' : 'var(--accent)';
+  document.getElementById('spotifyLoginBtn').style.color = ok ? '#000' : '#fff';
+  document.getElementById('spotifyLogoutBtn').style.display = ok ? 'inline-block' : 'none';
+}
+function isSpotifyLoggedIn() {
+  const t = localStorage.getItem('sp_access_token');
+  const exp = parseInt(localStorage.getItem('sp_token_expiry')||'0');
+  return !!(t && Date.now() < exp);
+}
+
+// ── SPOTIFY PKCE ───────────────────────────────────────────
+function b64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function pkce() {
+  const v = b64url(crypto.getRandomValues(new Uint8Array(64)));
+  const c = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v)));
+  return {v, c};
+}
+async function startSpotifyLogin() {
+  const id = localStorage.getItem('sp_client_id');
+  if (!id) {
+    document.getElementById('keysBody').classList.add('visible');
+    document.getElementById('keysArrow').classList.add('open');
+    alert('Primero introduce tu Spotify Client ID en ⚙ y pulsa Guardar.');
+    return;
+  }
+  const {v, c} = await pkce();
+  const redirectUri = location.href.split('?')[0].split('#')[0];
+  localStorage.setItem('sp_verifier', v);
+  localStorage.setItem('sp_redirect_uri', redirectUri);
+  const p = new URLSearchParams({
+    response_type:'code', client_id:id,
+    scope:'playlist-read-private playlist-read-collaborative',
+    redirect_uri:redirectUri,
+    code_challenge_method:'S256', code_challenge:c
+  });
+  location.href = 'https://accounts.spotify.com/authorize?' + p;
+}
+async function handleCallback() {
+  const p = new URLSearchParams(location.search);
+  const code = p.get('code');
+  if (!code) return;
+  history.replaceState({}, '', location.pathname);
+  const verifier = localStorage.getItem('sp_verifier');
+  const redirectUri = localStorage.getItem('sp_redirect_uri');
+  const id = localStorage.getItem('sp_client_id');
+  if (!verifier || !id) return;
+  const r = await fetch('https://accounts.spotify.com/api/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({grant_type:'authorization_code',code,redirect_uri:redirectUri,client_id:id,code_verifier:verifier})
+  });
+  if (!r.ok) { console.error('Token exchange failed', await r.text()); return; }
+  const d = await r.json();
+  localStorage.setItem('sp_access_token', d.access_token);
+  localStorage.setItem('sp_token_expiry', Date.now() + d.expires_in*1000);
+  if (d.refresh_token) localStorage.setItem('sp_refresh_token', d.refresh_token);
+  localStorage.removeItem('sp_verifier');
+  updateSpotifyLoginUI();
+  setStatus('✓ Spotify conectado correctamente', 'success', false);
+  setTimeout(hideStatus, 3000);
+}
+async function refreshSpToken() {
+  const id = localStorage.getItem('sp_client_id');
+  const rt = localStorage.getItem('sp_refresh_token');
+  if (!id || !rt) return false;
+  const r = await fetch('https://accounts.spotify.com/api/token', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({grant_type:'refresh_token',refresh_token:rt,client_id:id})
+  });
+  if (!r.ok) return false;
+  const d = await r.json();
+  localStorage.setItem('sp_access_token', d.access_token);
+  localStorage.setItem('sp_token_expiry', Date.now() + d.expires_in*1000);
+  if (d.refresh_token) localStorage.setItem('sp_refresh_token', d.refresh_token);
+  return true;
+}
+async function getSpToken() {
+  let token = localStorage.getItem('sp_access_token');
+  const exp = parseInt(localStorage.getItem('sp_token_expiry')||'0');
+  if (token && Date.now() < exp - 60000) return token;
+  if (localStorage.getItem('sp_refresh_token')) {
+    if (await refreshSpToken()) return localStorage.getItem('sp_access_token');
+  }
+  return null; // need login
+}
+function logoutSpotify() {
+  ['sp_access_token','sp_token_expiry','sp_refresh_token','sp_verifier'].forEach(k=>localStorage.removeItem(k));
+  updateSpotifyLoginUI();
+}
+
+// ── STATUS ─────────────────────────────────────────────────
+function setStatus(msg, type='loading', spinner=true) {
+  const bar = document.getElementById('statusBar');
+  bar.className = 'status-bar visible'+(type==='error'?' error':type==='success'?' success':'');
+  document.getElementById('statusText').textContent = msg;
+  document.getElementById('statusSpinner').style.display = spinner?'block':'none';
+}
+function hideStatus() {
+  document.getElementById('statusBar').className = 'status-bar';
+  document.getElementById('progressWrap').className = 'progress-wrap';
+}
+function setProgress(p) {
+  document.getElementById('progressWrap').className = 'progress-wrap visible';
+  document.getElementById('progressBar').style.width = p+'%';
+}
+
+// ── MODE ───────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('btnStoY').className = 'mode-btn'+(m==='sp2yt'?' active-sp':'');
+  document.getElementById('btnYtoS').className = 'mode-btn'+(m==='yt2sp'?' active-yt':'');
+  const btn = document.getElementById('convertBtn');
+  if (m==='sp2yt') {
+    document.getElementById('urlInput').placeholder = 'https://open.spotify.com/playlist/...';
+    btn.className='convert-btn sp'; document.getElementById('inputLabel').textContent='ENLACE DE PLAYLIST DE SPOTIFY';
+  } else {
+    document.getElementById('urlInput').placeholder = 'https://www.youtube.com/playlist?list=...';
+    btn.className='convert-btn yt'; document.getElementById('inputLabel').textContent='ENLACE DE PLAYLIST DE YOUTUBE';
+  }
+  document.getElementById('results').classList.remove('visible');
+  document.getElementById('loginPrompt').classList.remove('visible');
+  hideStatus();
+}
+
+// ── SPOTIFY API ────────────────────────────────────────────
+function extractSpId(url) {
+  const m = url.match(/playlist\/([a-zA-Z0-9]+)/);
+  if (!m) throw new Error('URL de Spotify no válida.');
+  return m[1];
+}
+async function fetchSpPlaylist(id, token) {
+  const r = await fetch(`https://api.spotify.com/v1/playlists/${id}`, {headers:{'Authorization':'Bearer '+token}});
+  if (r.status===401) throw new Error('TOKEN_EXPIRED');
+  if (!r.ok) { const b=await r.json().catch(()=>{}); throw new Error(`Spotify ${r.status}: ${b?.error?.message||'error'}`); }
+  return r.json();
+}
+async function fetchAllSpTracks(id, token) {
+  let tracks=[], url=`https://api.spotify.com/v1/playlists/${id}/tracks?limit=100`;
+  while (url) {
+    const r = await fetch(url, {headers:{'Authorization':'Bearer '+token}});
+    if (!r.ok) throw new Error('Error obteniendo pistas de Spotify.');
+    const d = await r.json();
+    for (const item of d.items) {
+      if (item.track?.name) tracks.push({
+        name:item.track.name, artist:item.track.artists.map(a=>a.name).join(', '),
+        spotifyUrl:item.track.external_urls?.spotify||''
+      });
+    }
+    url = d.next;
+  }
+  return tracks;
+}
+async function searchSpotify(query, token) {
+  const r = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`, {headers:{'Authorization':'Bearer '+token}});
+  if (!r.ok) return null;
+  const d = await r.json();
+  if (d.tracks?.items?.length>0) {
+    const t=d.tracks.items[0];
+    return {name:t.name, artist:t.artists.map(a=>a.name).join(', '), spotifyUrl:t.external_urls?.spotify||'', uri:t.uri};
+  }
+  return null;
+}
+
+// ── YOUTUBE API ────────────────────────────────────────────
+function extractYTId(url) {
+  const m = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+  if (!m) throw new Error('URL de YouTube no válida (debe contener ?list=...).');
+  return m[1];
+}
+async function searchYouTube(query) {
+  const key = localStorage.getItem('yt_api_key');
+  if (!key) throw new Error('Falta la API Key de YouTube. Configúrala en ⚙.');
+  const r = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(query)}&type=video&maxResults=1&key=${key}`);
+  if (r.status===403) { const e=await r.json(); throw new Error('YouTube API: '+(e.error?.message||'Acceso denegado. Verifica tu API Key.')); }
+  if (!r.ok) throw new Error('YouTube API error: '+r.status);
+  const d = await r.json();
+  if (d.items?.length>0) return {videoId:d.items[0].id.videoId, url:'https://www.youtube.com/watch?v='+d.items[0].id.videoId};
+  return null;
+}
+async function fetchYTPlaylistInfo(id) {
+  const key=localStorage.getItem('yt_api_key');
+  const r=await fetch(`https://www.googleapis.com/youtube/v3/playlists?part=snippet&id=${id}&key=${key}`);
+  if (!r.ok) throw new Error('Error obteniendo info de playlist de YouTube.');
+  const d=await r.json(); return d.items?.[0]||null;
+}
+async function fetchAllYTTracks(id) {
+  const key=localStorage.getItem('yt_api_key');
+  let tracks=[],pageToken='';
+  do {
+    const r=await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${id}&key=${key}`+(pageToken?`&pageToken=${pageToken}`:''));
+    if (!r.ok) throw new Error('Error obteniendo pistas de YouTube.');
+    const d=await r.json();
+    for (const item of d.items) {
+      if (!['Deleted video','Private video'].includes(item.snippet.title)) {
+        tracks.push({name:item.snippet.title, artist:item.snippet.videoOwnerChannelTitle||'', videoId:item.snippet.resourceId?.videoId||'', youtubeUrl:'https://www.youtube.com/watch?v='+item.snippet.resourceId?.videoId});
+      }
+    }
+    pageToken=d.nextPageToken||'';
+  } while(pageToken);
+  return tracks;
+}
+
+// ── RENDER ─────────────────────────────────────────────────
+function renderPlaylistInfo(pl, type) {
+  const el=document.getElementById('playlistInfo');
+  const thumbHtml=pl.image?`<img src="${pl.image}" class="playlist-thumb" alt="cover">`:`<div class="playlist-thumb-placeholder">${type==='sp'?'🎵':'📺'}</div>`;
+  el.innerHTML=`${thumbHtml}<div class="playlist-details"><h3>${esc(pl.name)}</h3><p>${esc(pl.owner)} · ${pl.total} canciones</p></div>`;
+}
+function addTrackPlaceholder(i, track) {
+  const list=document.getElementById('trackList');
+  const item=document.createElement('div');
+  item.id='track-'+i; item.className='track-item';
+  item.style.animationDelay=Math.min(i*20,500)+'ms';
+  item.innerHTML=`<div class="track-num">${i+1}</div><div class="track-info"><div class="track-name">${esc(track.name)}</div><div class="track-artist">${esc(track.artist||'')}</div></div><div class="track-status"><div class="track-mini-spinner"></div></div>`;
+  list.appendChild(item);
+}
+function updateTrack(i, found, url, label, cls) {
+  const item=document.getElementById('track-'+i); if(!item) return;
+  item.className='track-item '+(found?'found':'not-found');
+  item.querySelector('.track-status').innerHTML=found?`<a href="${url}" target="_blank" class="track-link ${cls}">${label}</a>`:`<span class="not-found-badge">No encontrado</span>`;
+}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+
+// ── MAIN ───────────────────────────────────────────────────
+async function startConvert() {
+  const url=document.getElementById('urlInput').value.trim();
+  if (!url) { setStatus('Introduce una URL de playlist','error',false); return; }
+  document.getElementById('convertBtn').disabled=true;
+  document.getElementById('results').classList.remove('visible');
+  document.getElementById('trackList').innerHTML='';
+  document.getElementById('ytResultBox').className='yt-result-box';
+  document.getElementById('loginPrompt').classList.remove('visible');
+  foundTracks=[];
+  try {
+    if (mode==='sp2yt') await convertSp2Yt(url);
+    else await convertYt2Sp(url);
+  } catch(e) {
+    if (e.message==='TOKEN_EXPIRED' || e.message==='NEED_LOGIN') {
+      document.getElementById('loginPrompt').classList.add('visible');
+      setStatus('Necesitas conectar tu cuenta de Spotify primero','error',false);
+    } else {
+      setStatus('❌ '+e.message,'error',false);
+    }
+  } finally {
+    document.getElementById('convertBtn').disabled=false;
+  }
+}
+
+async function convertSp2Yt(url) {
+  setStatus('Verificando sesión de Spotify...');
+  let token = await getSpToken();
+  if (!token) throw new Error('NEED_LOGIN');
+
+  setStatus('Cargando playlist de Spotify...');
+  const id=extractSpId(url);
+  const plInfo=await fetchSpPlaylist(id, token);
+  renderPlaylistInfo({name:plInfo.name, owner:plInfo.owner?.display_name||'', total:plInfo.tracks?.total||0, image:plInfo.images?.[0]?.url||null}, 'sp');
+  setStatus('Obteniendo canciones...');
+  tracks=await fetchAllSpTracks(id, token);
+  document.getElementById('results').classList.add('visible');
+  document.getElementById('resultsTitle').textContent=`${tracks.length} canciones`;
+  tracks.forEach((t,i)=>addTrackPlaceholder(i,t));
+  setStatus(`Buscando en YouTube... (0/${tracks.length})`); setProgress(0);
+  const videoIds=[]; let found=0;
+  for (let i=0;i<tracks.length;i++) {
+    const t=tracks[i];
+    try {
+      const res=await searchYouTube(`${t.artist} ${t.name}`);
+      if (res) { videoIds.push(res.videoId); foundTracks.push({...t,youtubeUrl:res.url}); updateTrack(i,true,res.url,'▶ YouTube','yt'); found++; }
+      else updateTrack(i,false);
+    } catch(e) {
+      if (e.message.includes('YouTube API')||e.message.includes('Falta')) throw e;
+      updateTrack(i,false);
+    }
+    setProgress(Math.round((i+1)/tracks.length*100));
+    setStatus(`Buscando en YouTube... (${i+1}/${tracks.length})`);
+    await sleep(130);
+  }
+  const links=foundTracks.map(t=>t.youtubeUrl).join('\n');
+  window._exportLinks=links;
+  const blobUrl=URL.createObjectURL(new Blob([links],{type:'text/plain'}));
+  document.getElementById('resultsActions').innerHTML=`
+    <a href="${blobUrl}" download="youtube_links.txt" class="action-btn">⬇ Descargar URLs</a>
+    <button class="action-btn" onclick="navigator.clipboard.writeText(window._exportLinks).then(()=>setStatus('✓ Copiado','success',false))">📋 Copiar URLs</button>
+  `;
+  document.getElementById('resultsStats').textContent=`${found} encontradas · ${tracks.length-found} no encontradas`;
+  setStatus(`✓ ${found}/${tracks.length} canciones encontradas en YouTube`,'success',false);
+}
+
+async function convertYt2Sp(url) {
+  if (!localStorage.getItem('yt_api_key')) throw new Error('Falta la API Key de YouTube. Configúrala en ⚙.');
+  setStatus('Cargando playlist de YouTube...');
+  const id=extractYTId(url);
+  const plInfo=await fetchYTPlaylistInfo(id);
+  renderPlaylistInfo({name:plInfo?.snippet?.title||'Playlist de YouTube', owner:plInfo?.snippet?.channelTitle||'', total:'?', image:plInfo?.snippet?.thumbnails?.medium?.url||null},'yt');
+  setStatus('Obteniendo vídeos...');
+  tracks=await fetchAllYTTracks(id);
+  document.getElementById('results').classList.add('visible');
+  document.getElementById('resultsTitle').textContent=`${tracks.length} vídeos`;
+  tracks.forEach((t,i)=>addTrackPlaceholder(i,t));
+  setStatus('Verificando sesión de Spotify...');
+  let token=await getSpToken();
+  if (!token) throw new Error('NEED_LOGIN');
+  setStatus(`Buscando en Spotify... (0/${tracks.length})`); setProgress(0);
+  let found=0;
+  for (let i=0;i<tracks.length;i++) {
+    const t=tracks[i];
+    const q=t.name.replace(/\(Official.*?\)/gi,'').replace(/\[.*?\]/g,'').replace(/\|.*$/,'').replace(/ft\..*$/i,'').trim();
+    try {
+      const res=await searchSpotify(q, token);
+      if (res) { foundTracks.push({...t,spotifyUrl:res.spotifyUrl}); updateTrack(i,true,res.spotifyUrl,'🎵 Spotify','sp'); found++; }
+      else updateTrack(i,false);
+    } catch(e) { updateTrack(i,false); }
+    setProgress(Math.round((i+1)/tracks.length*100));
+    setStatus(`Buscando en Spotify... (${i+1}/${tracks.length})`);
+    await sleep(150);
+  }
+  const links=foundTracks.map(t=>t.spotifyUrl).join('\n');
+  window._exportLinks=links;
+  const blobUrl=URL.createObjectURL(new Blob([links],{type:'text/plain'}));
+  document.getElementById('resultsActions').innerHTML=`
+    <a href="${blobUrl}" download="spotify_links.txt" class="action-btn">⬇ Descargar URLs</a>
+    <button class="action-btn" onclick="navigator.clipboard.writeText(window._exportLinks).then(()=>setStatus('✓ Copiado','success',false))">📋 Copiar URLs</button>
+  `;
+  document.getElementById('resultsStats').textContent=`${found} encontradas · ${tracks.length-found} no encontradas`;
+  setStatus(`✓ ${found}/${tracks.length} canciones encontradas en Spotify`,'success',false);
+}
+
+// ── INIT ───────────────────────────────────────────────────
+loadKeys();
+updateSpotifyLoginUI();
+handleCallback(); // handle OAuth redirect
+document.getElementById('urlInput').value='https://open.spotify.com/playlist/4DQ5MgzJ6khjFKZohHaTbR?si=6nof7HfhR5KbgkoAcgOuHQ';
+if (!localStorage.getItem('sp_client_id')) {
+  document.getElementById('keysBody').classList.add('visible');
+  document.getElementById('keysArrow').classList.add('open');
+}
+</script>
+</body>
+</html>
