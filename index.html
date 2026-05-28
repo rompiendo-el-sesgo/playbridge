@@ -106,6 +106,11 @@
     .yt-result-box.visible{display:block}
     .yt-result-box h3{font-size:14px;color:var(--youtube);font-family:'Space Mono',monospace;margin-bottom:10px}
     .yt-result-box a{color:var(--text);font-family:'Space Mono',monospace;font-size:13px;word-break:break-all}
+    .paste-hint{font-size:12px;font-family:'Space Mono',monospace;color:var(--muted);margin-bottom:10px;line-height:1.7;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+    .paste-hint kbd{background:var(--border);color:var(--text);padding:2px 6px;border-radius:4px;font-family:'Space Mono',monospace;font-size:11px}
+    .paste-area{width:100%;min-height:160px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;color:var(--text);font-family:'Space Mono',monospace;font-size:12px;outline:none;resize:vertical;line-height:1.6;transition:border-color .2s}
+    .paste-area:focus{border-color:var(--accent)}
+    .paste-area::placeholder{color:var(--muted)}
     footer{text-align:center;padding:48px 0 32px;font-size:11px;font-family:'Space Mono',monospace;color:var(--muted)}
     footer a{color:var(--accent)}
     /* Login required overlay */
@@ -138,6 +143,10 @@
           <input type="text" id="spotifyClientId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
         </div>
         <div class="key-group">
+          <label>SPOTIFY CLIENT SECRET</label>
+          <input type="password" id="spotifyClientSecret" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+        <div class="key-group">
           <label>YOUTUBE API KEY</label>
           <input type="password" id="youtubeApiKey" placeholder="AIzaSy..." />
         </div>
@@ -164,10 +173,24 @@
   <!-- INPUT -->
   <div class="input-card">
     <div class="input-label" id="inputLabel">ENLACE DE PLAYLIST DE SPOTIFY</div>
-    <div class="input-row">
+
+    <!-- URL input (YouTube→Spotify mode) -->
+    <div class="input-row" id="urlRow">
       <input type="text" class="url-input" id="urlInput" placeholder="https://open.spotify.com/playlist/..." />
       <button class="convert-btn sp" id="convertBtn" onclick="startConvert()">Convertir →</button>
     </div>
+
+    <!-- Paste input (Spotify→YouTube mode) -->
+    <div id="pasteRow" style="display:none">
+      <div class="paste-hint">
+        Pega aquí los <strong>enlaces de track</strong> de Spotify (uno por línea):<br>
+        <kbd>https://open.spotify.com/track/XXXX</kbd><br><br>
+        También acepta texto copiado de Spotify (<kbd>Ctrl+A</kbd> → <kbd>Ctrl+C</kbd> en la playlist) o formato <kbd>Artista - Canción</kbd>
+      </div>
+      <textarea id="pasteInput" class="paste-area" placeholder="https://open.spotify.com/track/1WvvmEowf7hiz5EnyAwtTj&#10;https://open.spotify.com/track/2FHVQDA0Omeq38IEzknSlf&#10;...&#10;&#10;O también: Artista - Canción (una por línea)"></textarea>
+      <button class="convert-btn sp" id="convertBtnPaste" onclick="startConvert()" style="margin-top:12px;width:100%">Convertir →</button>
+    </div>
+
     <div class="status-bar" id="statusBar">
       <div class="spinner" id="statusSpinner"></div>
       <span id="statusText">Procesando...</span>
@@ -175,7 +198,6 @@
     <div class="progress-wrap" id="progressWrap">
       <div class="progress-bar" id="progressBar"></div>
     </div>
-    <!-- Login prompt shown when not authenticated -->
     <div class="login-prompt" id="loginPrompt">
       <p>Para leer playlists de Spotify necesitas conectar tu cuenta.<br>Es seguro — solo pide permiso de lectura de playlists.</p>
       <button class="login-prompt-btn" onclick="startSpotifyLogin()">🔑 Conectar con Spotify</button>
@@ -211,11 +233,13 @@ let mode = 'sp2yt', tracks = [], foundTracks = [];
 // ── KEYS UI ────────────────────────────────────────────────
 function loadKeys() {
   document.getElementById('spotifyClientId').value = localStorage.getItem('sp_client_id') || '';
+  document.getElementById('spotifyClientSecret').value = localStorage.getItem('sp_client_secret') || '';
   document.getElementById('youtubeApiKey').value = localStorage.getItem('yt_api_key') || '';
   document.getElementById('redirectUriDisplay').textContent = location.href.split('?')[0].split('#')[0];
 }
 function saveKeys() {
   localStorage.setItem('sp_client_id', document.getElementById('spotifyClientId').value.trim());
+  localStorage.setItem('sp_client_secret', document.getElementById('spotifyClientSecret').value.trim());
   localStorage.setItem('yt_api_key', document.getElementById('youtubeApiKey').value.trim());
   setStatus('✓ Claves guardadas', 'success', false);
   setTimeout(hideStatus, 2000);
@@ -341,13 +365,16 @@ function setMode(m) {
   mode = m;
   document.getElementById('btnStoY').className = 'mode-btn'+(m==='sp2yt'?' active-sp':'');
   document.getElementById('btnYtoS').className = 'mode-btn'+(m==='yt2sp'?' active-yt':'');
-  const btn = document.getElementById('convertBtn');
   if (m==='sp2yt') {
-    document.getElementById('urlInput').placeholder = 'https://open.spotify.com/playlist/...';
-    btn.className='convert-btn sp'; document.getElementById('inputLabel').textContent='ENLACE DE PLAYLIST DE SPOTIFY';
+    document.getElementById('urlRow').style.display='none';
+    document.getElementById('pasteRow').style.display='block';
+    document.getElementById('inputLabel').textContent='CANCIONES DE SPOTIFY';
   } else {
-    document.getElementById('urlInput').placeholder = 'https://www.youtube.com/playlist?list=...';
-    btn.className='convert-btn yt'; document.getElementById('inputLabel').textContent='ENLACE DE PLAYLIST DE YOUTUBE';
+    document.getElementById('urlRow').style.display='flex';
+    document.getElementById('pasteRow').style.display='none';
+    document.getElementById('urlInput').placeholder='https://www.youtube.com/playlist?list=...';
+    document.getElementById('convertBtn').className='convert-btn yt';
+    document.getElementById('inputLabel').textContent='ENLACE DE PLAYLIST DE YOUTUBE';
   }
   document.getElementById('results').classList.remove('visible');
   document.getElementById('loginPrompt').classList.remove('visible');
@@ -382,13 +409,56 @@ async function fetchAllSpTracks(id, token) {
   }
   return tracks;
 }
-async function searchSpotify(query, token) {
+async function searchSpotifyRaw(query, token) {
+  await sleep(100);
   const r = await fetch(`https://api.spotify.com/v1/search?q=${encodeURIComponent(query)}&type=track&limit=1`, {headers:{'Authorization':'Bearer '+token}});
   if (!r.ok) return null;
   const d = await r.json();
   if (d.tracks?.items?.length>0) {
     const t=d.tracks.items[0];
     return {name:t.name, artist:t.artists.map(a=>a.name).join(', '), spotifyUrl:t.external_urls?.spotify||'', uri:t.uri};
+  }
+  return null;
+}
+
+function cleanYTTitle(raw) {
+  return raw
+    .replace(/\((?:official|video|audio|lyric|letra|music|clip|hd|hq|mv|visualizer|live|version|vevo|ft\.?|feat\.?|prod\.?)[^)]*\)/gi, '')
+    .replace(/\[(?:official|video|audio|lyric|letra|music|clip|hd|hq|mv|visualizer|live|version|vevo|ft\.?|feat\.?|prod\.?)[^\]]*\]/gi, '')
+    .replace(/[|].*$/g, '')
+    .replace(/[-\u2013]\s*(official|video|audio|lyric|letra|visualizer|clip|live|version|hd|hq)\s*$/gi, '')
+    .replace(/\b(?:feat\.?|ft\.?|con |with )\s*[\w\s,&]+$/gi, '')
+    .replace(/\b(19|20)\d{2}\b/g, '')
+    .replace(/\b(vevo|official|records|music)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s\-,]+|[\s\-,]+$/g, '')
+    .trim();
+}
+
+function extractArtistAndTitle(raw) {
+  const m = raw.match(/^(.+?)\s*[-\u2013]\s*(.+)$/);
+  if (m) return { artist: m[1].trim(), title: cleanYTTitle(m[2].trim()) };
+  return { artist: '', title: cleanYTTitle(raw) };
+}
+
+async function searchSpotify(rawTitle, token) {
+  const { artist, title } = extractArtistAndTitle(rawTitle);
+  if (artist && title) {
+    const r1 = await searchSpotifyRaw(`track:${title} artist:${artist}`, token);
+    if (r1) return r1;
+  }
+  if (artist && title) {
+    const r2 = await searchSpotifyRaw(`${artist} ${title}`, token);
+    if (r2) return r2;
+  }
+  if (title) {
+    const r3 = await searchSpotifyRaw(title, token);
+    if (r3) return r3;
+  }
+  const words = rawTitle.replace(/[^\w\s]/g,' ').split(/\s+/).filter(Boolean).slice(0,4).join(' ');
+  if (words && words !== title) {
+    const r4 = await searchSpotifyRaw(words, token);
+    if (r4) return r4;
   }
   return null;
 }
@@ -456,40 +526,120 @@ function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 
 // ── MAIN ───────────────────────────────────────────────────
 async function startConvert() {
-  const url=document.getElementById('urlInput').value.trim();
-  if (!url) { setStatus('Introduce una URL de playlist','error',false); return; }
-  document.getElementById('convertBtn').disabled=true;
   document.getElementById('results').classList.remove('visible');
   document.getElementById('trackList').innerHTML='';
   document.getElementById('ytResultBox').className='yt-result-box';
   document.getElementById('loginPrompt').classList.remove('visible');
   foundTracks=[];
-  try {
-    if (mode==='sp2yt') await convertSp2Yt(url);
-    else await convertYt2Sp(url);
-  } catch(e) {
-    if (e.message==='TOKEN_EXPIRED' || e.message==='NEED_LOGIN') {
-      document.getElementById('loginPrompt').classList.add('visible');
-      setStatus('Necesitas conectar tu cuenta de Spotify primero','error',false);
-    } else {
-      setStatus('❌ '+e.message,'error',false);
+
+  if (mode==='sp2yt') {
+    const pasteText=document.getElementById('pasteInput').value.trim();
+    if (!pasteText) { setStatus('Pega las canciones de Spotify en el cuadro de texto','error',false); return; }
+    document.getElementById('convertBtnPaste').disabled=true;
+    try { await convertSp2Yt(pasteText); }
+    catch(e) { setStatus('❌ '+e.message,'error',false); }
+    finally { document.getElementById('convertBtnPaste').disabled=false; }
+  } else {
+    const url=document.getElementById('urlInput').value.trim();
+    if (!url) { setStatus('Introduce una URL de playlist de YouTube','error',false); return; }
+    document.getElementById('convertBtn').disabled=true;
+    try {
+      await convertYt2Sp(url);
+    } catch(e) {
+      if (e.message==='TOKEN_EXPIRED' || e.message==='NEED_LOGIN') {
+        document.getElementById('loginPrompt').classList.add('visible');
+        setStatus('Necesitas conectar tu cuenta de Spotify primero','error',false);
+      } else {
+        setStatus('❌ '+e.message,'error',false);
+      }
+    } finally {
+      document.getElementById('convertBtn').disabled=false;
     }
-  } finally {
-    document.getElementById('convertBtn').disabled=false;
   }
 }
 
-async function convertSp2Yt(url) {
-  setStatus('Verificando sesión de Spotify...');
-  let token = await getSpToken();
-  if (!token) throw new Error('NEED_LOGIN');
+function parseSpotifyInput(text) {
+  const lines = text.split('\n').map(l=>l.trim()).filter(l=>l.length>2);
+  const trackIds = [];
+  const manualTracks = [];
 
-  setStatus('Cargando playlist de Spotify...');
-  const id=extractSpId(url);
-  const plInfo=await fetchSpPlaylist(id, token);
-  renderPlaylistInfo({name:plInfo.name, owner:plInfo.owner?.display_name||'', total:plInfo.tracks?.total||0, image:plInfo.images?.[0]?.url||null}, 'sp');
-  setStatus('Obteniendo canciones...');
-  tracks=await fetchAllSpTracks(id, token);
+  for (const line of lines) {
+    // Spotify track URL or URI
+    const urlMatch = line.match(/spotify\.com\/track\/([a-zA-Z0-9]+)/);
+    const uriMatch = line.match(/spotify:track:([a-zA-Z0-9]+)/);
+    const id = (urlMatch || uriMatch)?.[1];
+    if (id) { trackIds.push(id); continue; }
+
+    // Tab-separated (Spotify desktop copy)
+    if (line.includes('\t')) {
+      const parts = line.split('\t').map(p=>p.trim());
+      if (parts.length >= 2) { manualTracks.push({ name: parts[0], artist: parts[1] }); continue; }
+    }
+    // "Artist - Title"
+    const dash = line.match(/^(.+?)\s*[-–]\s*(.+)$/);
+    if (dash) { manualTracks.push({ name: dash[2].trim(), artist: dash[1].trim() }); continue; }
+    // Plain title
+    manualTracks.push({ name: line, artist: '' });
+  }
+  return { trackIds, manualTracks };
+}
+
+async function resolveSpotifyTrackIds(ids) {
+  // Use client_credentials — works for track lookup without Premium
+  const clientId = localStorage.getItem('sp_client_id');
+  const clientSecret = localStorage.getItem('sp_client_secret');
+  let token = null;
+
+  if (clientId && clientSecret) {
+    try {
+      const r = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Basic ' + btoa(clientId+':'+clientSecret) },
+        body: 'grant_type=client_credentials'
+      });
+      if (r.ok) token = (await r.json()).access_token;
+    } catch(e) {}
+  }
+  // Fallback: try existing user token
+  if (!token) token = await getSpToken();
+  if (!token) throw new Error('Necesitas configurar Spotify Client ID y Secret en ⚙ para resolver los IDs de tracks.');
+
+  const resolved = [];
+  // Spotify allows up to 50 IDs per request
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i+50).join(',');
+    const r = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!r.ok) throw new Error('Error al obtener datos de tracks de Spotify: ' + r.status);
+    const d = await r.json();
+    for (const t of d.tracks) {
+      if (t) resolved.push({ name: t.name, artist: t.artists.map(a=>a.name).join(', ') });
+    }
+    await sleep(100);
+  }
+  return resolved;
+}
+
+async function convertSp2Yt(pasteText) {
+  setStatus('Analizando entrada...');
+  const { trackIds, manualTracks } = parseSpotifyInput(pasteText);
+
+  let resolvedTracks = [];
+  if (trackIds.length > 0) {
+    setStatus(`Resolviendo ${trackIds.length} tracks de Spotify...`);
+    const fromApi = await resolveSpotifyTrackIds(trackIds);
+    resolvedTracks = [...fromApi, ...manualTracks];
+  } else {
+    resolvedTracks = manualTracks;
+  }
+
+  tracks = resolvedTracks;
+  if (tracks.length === 0) throw new Error('No se encontraron canciones. Pega enlaces de Spotify o nombres de canciones.');
+
+  const el=document.getElementById('playlistInfo');
+  el.innerHTML=`<div class="playlist-thumb-placeholder">🎵</div><div class="playlist-details"><h3>Playlist de Spotify</h3><p>${tracks.length} canciones detectadas</p></div>`;
+
   document.getElementById('results').classList.add('visible');
   document.getElementById('resultsTitle').textContent=`${tracks.length} canciones`;
   tracks.forEach((t,i)=>addTrackPlaceholder(i,t));
@@ -497,8 +647,9 @@ async function convertSp2Yt(url) {
   const videoIds=[]; let found=0;
   for (let i=0;i<tracks.length;i++) {
     const t=tracks[i];
+    const query = t.artist ? `${t.artist} ${t.name}` : t.name;
     try {
-      const res=await searchYouTube(`${t.artist} ${t.name}`);
+      const res=await searchYouTube(query);
       if (res) { videoIds.push(res.videoId); foundTracks.push({...t,youtubeUrl:res.url}); updateTrack(i,true,res.url,'▶ YouTube','yt'); found++; }
       else updateTrack(i,false);
     } catch(e) {
@@ -538,9 +689,8 @@ async function convertYt2Sp(url) {
   let found=0;
   for (let i=0;i<tracks.length;i++) {
     const t=tracks[i];
-    const q=t.name.replace(/\(Official.*?\)/gi,'').replace(/\[.*?\]/g,'').replace(/\|.*$/,'').replace(/ft\..*$/i,'').trim();
     try {
-      const res=await searchSpotify(q, token);
+      const res=await searchSpotify(t.name, token);
       if (res) { foundTracks.push({...t,spotifyUrl:res.spotifyUrl}); updateTrack(i,true,res.spotifyUrl,'🎵 Spotify','sp'); found++; }
       else updateTrack(i,false);
     } catch(e) { updateTrack(i,false); }
@@ -563,7 +713,7 @@ async function convertYt2Sp(url) {
 loadKeys();
 updateSpotifyLoginUI();
 handleCallback(); // handle OAuth redirect
-document.getElementById('urlInput').value='https://open.spotify.com/playlist/4DQ5MgzJ6khjFKZohHaTbR?si=6nof7HfhR5KbgkoAcgOuHQ';
+setMode('sp2yt'); // init UI correctly
 if (!localStorage.getItem('sp_client_id')) {
   document.getElementById('keysBody').classList.add('visible');
   document.getElementById('keysArrow').classList.add('open');
