@@ -150,16 +150,25 @@
           <label>YOUTUBE API KEY</label>
           <input type="password" id="youtubeApiKey" placeholder="AIzaSy..." />
         </div>
+        <div class="key-group">
+          <label>YOUTUBE OAUTH CLIENT ID (para crear playlists)</label>
+          <input type="text" id="youtubeClientId" placeholder="XXXXXXXXXXXX-xxx.apps.googleusercontent.com" />
+        </div>
       </div>
       <div class="keys-row">
         <button class="save-keys-btn" onclick="saveKeys()">💾 Guardar</button>
         <button class="sp-login-btn" onclick="startSpotifyLogin()" id="spotifyLoginBtn">🔑 Conectar con Spotify</button>
         <button class="sp-logout-btn" onclick="logoutSpotify()" id="spotifyLogoutBtn" style="display:none">Desconectar Spotify</button>
+        <button class="sp-login-btn" onclick="startYouTubeLogin()" id="youtubeLoginBtn" style="background:var(--youtube);color:#fff">📺 Conectar con YouTube</button>
+        <button class="sp-logout-btn" onclick="logoutYouTube()" id="youtubeLogoutBtn" style="display:none">Desconectar YouTube</button>
       </div>
       <p class="keys-hint">
         🎵 <strong>Spotify Client ID:</strong> <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a> → Crea app → Client ID<br>
-        &nbsp;&nbsp;&nbsp;En Settings de tu app, añade como Redirect URI: <strong id="redirectUriDisplay">esta página</strong><br>
-        📺 <strong>YouTube API Key:</strong> <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank">Google Cloud Console</a> → Habilitar YouTube Data API v3 → Credenciales → Clave de API
+        &nbsp;&nbsp;&nbsp;En Settings añade Redirect URI: <strong id="redirectUriDisplay">esta página</strong><br>
+        📺 <strong>YouTube API Key:</strong> <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank">Google Cloud Console</a> → YouTube Data API v3 → Credenciales → Clave de API<br>
+        📺 <strong>YouTube OAuth Client ID:</strong> Google Cloud Console → Credenciales → Crear credenciales → ID de cliente OAuth 2.0 → Aplicación web<br>
+        &nbsp;&nbsp;&nbsp;Añade en "Orígenes JS autorizados": <strong id="ytOriginDisplay">esta página</strong><br>
+        &nbsp;&nbsp;&nbsp;Añade en "URIs de redirección": <strong id="ytRedirectDisplay">esta página</strong>
       </p>
     </div>
   </div>
@@ -235,12 +244,18 @@ function loadKeys() {
   document.getElementById('spotifyClientId').value = localStorage.getItem('sp_client_id') || '';
   document.getElementById('spotifyClientSecret').value = localStorage.getItem('sp_client_secret') || '';
   document.getElementById('youtubeApiKey').value = localStorage.getItem('yt_api_key') || '';
-  document.getElementById('redirectUriDisplay').textContent = location.href.split('?')[0].split('#')[0];
+  document.getElementById('youtubeClientId').value = localStorage.getItem('yt_client_id') || '';
+  const pageUrl = location.href.split('?')[0].split('#')[0];
+  const origin = location.origin;
+  document.getElementById('redirectUriDisplay').textContent = pageUrl;
+  document.getElementById('ytOriginDisplay').textContent = origin;
+  document.getElementById('ytRedirectDisplay').textContent = pageUrl;
 }
 function saveKeys() {
   localStorage.setItem('sp_client_id', document.getElementById('spotifyClientId').value.trim());
   localStorage.setItem('sp_client_secret', document.getElementById('spotifyClientSecret').value.trim());
   localStorage.setItem('yt_api_key', document.getElementById('youtubeApiKey').value.trim());
+  localStorage.setItem('yt_client_id', document.getElementById('youtubeClientId').value.trim());
   setStatus('✓ Claves guardadas', 'success', false);
   setTimeout(hideStatus, 2000);
 }
@@ -295,6 +310,18 @@ async function handleCallback() {
   const code = p.get('code');
   if (!code) return;
   history.replaceState({}, '', location.pathname);
+
+  // YouTube callback (has yt_verifier set)
+  if (localStorage.getItem('yt_verifier')) {
+    const ok = await handleYouTubeCallback(code);
+    if (ok) {
+      setStatus('✓ YouTube conectado correctamente', 'success', false);
+      setTimeout(hideStatus, 3000);
+    }
+    return;
+  }
+
+  // Spotify callback
   const verifier = localStorage.getItem('sp_verifier');
   const redirectUri = localStorage.getItem('sp_redirect_uri');
   const id = localStorage.getItem('sp_client_id');
@@ -342,6 +369,121 @@ async function getSpToken() {
 function logoutSpotify() {
   ['sp_access_token','sp_token_expiry','sp_refresh_token','sp_verifier'].forEach(k=>localStorage.removeItem(k));
   updateSpotifyLoginUI();
+}
+
+// ── YOUTUBE OAUTH PKCE ─────────────────────────────────────
+function isYouTubeLoggedIn() {
+  const t = localStorage.getItem('yt_access_token');
+  const exp = parseInt(localStorage.getItem('yt_token_expiry')||'0');
+  return !!(t && Date.now() < exp);
+}
+function updateYouTubeLoginUI() {
+  const ok = isYouTubeLoggedIn();
+  const btn = document.getElementById('youtubeLoginBtn');
+  const logoutBtn = document.getElementById('youtubeLogoutBtn');
+  if (!btn) return;
+  btn.textContent = ok ? '✓ YouTube conectado' : '📺 Conectar con YouTube';
+  btn.style.background = ok ? '#cc0000' : 'var(--youtube)';
+  logoutBtn.style.display = ok ? 'inline-block' : 'none';
+}
+async function startYouTubeLogin() {
+  const clientId = localStorage.getItem('yt_client_id');
+  if (!clientId) {
+    document.getElementById('keysBody').classList.add('visible');
+    document.getElementById('keysArrow').classList.add('open');
+    alert('Primero introduce tu YouTube OAuth Client ID en ⚙ y pulsa Guardar.');
+    return;
+  }
+  const {v, c} = await pkce();
+  const redirectUri = location.href.split('?')[0].split('#')[0];
+  localStorage.setItem('yt_verifier', v);
+  localStorage.setItem('yt_redirect_uri', redirectUri);
+  const p = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'https://www.googleapis.com/auth/youtube',
+    code_challenge_method: 'S256',
+    code_challenge: c,
+    access_type: 'offline',
+    prompt: 'consent'
+  });
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + p;
+}
+async function handleYouTubeCallback(code) {
+  const verifier = localStorage.getItem('yt_verifier');
+  const redirectUri = localStorage.getItem('yt_redirect_uri');
+  const clientId = localStorage.getItem('yt_client_id');
+  if (!verifier || !clientId) return false;
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({
+      code, client_id: clientId, redirect_uri: redirectUri,
+      code_verifier: verifier, grant_type: 'authorization_code'
+    })
+  });
+  if (!r.ok) { console.error('YT token exchange failed', await r.text()); return false; }
+  const d = await r.json();
+  localStorage.setItem('yt_access_token', d.access_token);
+  localStorage.setItem('yt_token_expiry', Date.now() + d.expires_in * 1000);
+  if (d.refresh_token) localStorage.setItem('yt_refresh_token', d.refresh_token);
+  localStorage.removeItem('yt_verifier');
+  updateYouTubeLoginUI();
+  return true;
+}
+async function refreshYTToken() {
+  const clientId = localStorage.getItem('yt_client_id');
+  const rt = localStorage.getItem('yt_refresh_token');
+  if (!clientId || !rt) return false;
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: new URLSearchParams({grant_type:'refresh_token', refresh_token:rt, client_id:clientId})
+  });
+  if (!r.ok) return false;
+  const d = await r.json();
+  localStorage.setItem('yt_access_token', d.access_token);
+  localStorage.setItem('yt_token_expiry', Date.now() + d.expires_in * 1000);
+  return true;
+}
+async function getYTToken() {
+  let token = localStorage.getItem('yt_access_token');
+  const exp = parseInt(localStorage.getItem('yt_token_expiry')||'0');
+  if (token && Date.now() < exp - 60000) return token;
+  if (localStorage.getItem('yt_refresh_token')) {
+    if (await refreshYTToken()) return localStorage.getItem('yt_access_token');
+  }
+  return null;
+}
+function logoutYouTube() {
+  ['yt_access_token','yt_token_expiry','yt_refresh_token','yt_verifier'].forEach(k=>localStorage.removeItem(k));
+  updateYouTubeLoginUI();
+}
+async function createYouTubePlaylist(title, videoIds) {
+  const token = await getYTToken();
+  if (!token || !videoIds.length) return null;
+  setStatus('Creando playlist en YouTube...');
+  const plR = await fetch('https://www.googleapis.com/youtube/v3/playlists?part=snippet,status', {
+    method: 'POST',
+    headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+    body: JSON.stringify({snippet:{title, description:'Creada con PlayBridge desde Spotify'}, status:{privacyStatus:'public'}})
+  });
+  if (!plR.ok) { console.error('Create playlist failed', await plR.text()); return null; }
+  const pl = await plR.json();
+  setStatus(`Añadiendo vídeos a la playlist... (0/${videoIds.length})`);
+  for (let i = 0; i < videoIds.length; i++) {
+    try {
+      await fetch('https://www.googleapis.com/youtube/v3/playlistItems?part=snippet', {
+        method: 'POST',
+        headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+        body: JSON.stringify({snippet:{playlistId:pl.id, resourceId:{kind:'youtube#video', videoId:videoIds[i]}}})
+      });
+    } catch(e) {}
+    setStatus(`Añadiendo vídeos a la playlist... (${i+1}/${videoIds.length})`);
+    await sleep(150);
+  }
+  return 'https://www.youtube.com/playlist?list=' + pl.id;
 }
 
 // ── STATUS ─────────────────────────────────────────────────
@@ -585,39 +727,37 @@ function parseSpotifyInput(text) {
 }
 
 async function resolveSpotifyTrackIds(ids) {
-  // Use client_credentials — works for track lookup without Premium
-  const clientId = localStorage.getItem('sp_client_id');
-  const clientSecret = localStorage.getItem('sp_client_secret');
-  let token = null;
-
-  if (clientId && clientSecret) {
-    try {
-      const r = await fetch('https://accounts.spotify.com/api/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Authorization': 'Basic ' + btoa(clientId+':'+clientSecret) },
-        body: 'grant_type=client_credentials'
-      });
-      if (r.ok) token = (await r.json()).access_token;
-    } catch(e) {}
-  }
-  // Fallback: try existing user token
-  if (!token) token = await getSpToken();
-  if (!token) throw new Error('Necesitas configurar Spotify Client ID y Secret en ⚙ para resolver los IDs de tracks.');
-
+  // Resolve track IDs by scraping Spotify's public web pages (no API, no Premium needed)
   const resolved = [];
-  // Spotify allows up to 50 IDs per request
-  for (let i = 0; i < ids.length; i += 50) {
-    const batch = ids.slice(i, i+50).join(',');
-    const r = await fetch(`https://api.spotify.com/v1/tracks?ids=${batch}`, {
-      headers: { 'Authorization': 'Bearer ' + token }
+  const BATCH = 6; // parallel requests per batch
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const batch = ids.slice(i, i + BATCH);
+    const promises = batch.map(async (id) => {
+      try {
+        const r = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent('https://open.spotify.com/track/' + id)}`);
+        if (!r.ok) return null;
+        const d = await r.json();
+        const html = d.contents || '';
+        // Extract from og:description meta tag: "Artist · Album · Song · Year"
+        const m = html.match(/property="og:description" content="([^"]+)"/);
+        if (m) {
+          const parts = m[1].split('·').map(p => p.trim());
+          if (parts.length >= 2) return { artist: parts[0], name: parts[1] };
+        }
+        // Fallback: og:title
+        const t = html.match(/property="og:title" content="([^"]+)"/);
+        if (t) return { artist: '', name: t[1] };
+        return null;
+      } catch(e) { return null; }
     });
-    if (!r.ok) throw new Error('Error al obtener datos de tracks de Spotify: ' + r.status);
-    const d = await r.json();
-    for (const t of d.tracks) {
-      if (t) resolved.push({ name: t.name, artist: t.artists.map(a=>a.name).join(', ') });
+    const results = await Promise.all(promises);
+    for (const r of results) {
+      if (r) resolved.push(r);
     }
-    await sleep(100);
+    setStatus(`Resolviendo tracks... (${Math.min(i + BATCH, ids.length)}/${ids.length})`);
+    await sleep(200);
   }
+  if (resolved.length === 0) throw new Error('No se pudieron resolver los IDs. Prueba pegando los nombres directamente como "Artista - Canción".');
   return resolved;
 }
 
@@ -663,7 +803,20 @@ async function convertSp2Yt(pasteText) {
   const links=foundTracks.map(t=>t.youtubeUrl).join('\n');
   window._exportLinks=links;
   const blobUrl=URL.createObjectURL(new Blob([links],{type:'text/plain'}));
+
+  // Try to create YouTube playlist if logged in
+  let ytPlaylistUrl = null;
+  if (isYouTubeLoggedIn() && videoIds.length > 0) {
+    ytPlaylistUrl = await createYouTubePlaylist('Playlist de Spotify (PlayBridge)', videoIds);
+  }
+
+  if (ytPlaylistUrl) {
+    document.getElementById('ytResultBox').className = 'yt-result-box visible';
+    document.getElementById('ytPlaylistLink').innerHTML = `<a href="${ytPlaylistUrl}" target="_blank">🔗 ${ytPlaylistUrl}</a>`;
+  }
+
   document.getElementById('resultsActions').innerHTML=`
+    ${ytPlaylistUrl ? `<a href="${ytPlaylistUrl}" target="_blank" class="action-btn primary">▶ Abrir Playlist en YouTube</a>` : `<button class="action-btn" onclick="startYouTubeLogin()" style="border-color:var(--youtube);color:var(--youtube)">📺 Conectar YouTube para crear playlist</button>`}
     <a href="${blobUrl}" download="youtube_links.txt" class="action-btn">⬇ Descargar URLs</a>
     <button class="action-btn" onclick="navigator.clipboard.writeText(window._exportLinks).then(()=>setStatus('✓ Copiado','success',false))">📋 Copiar URLs</button>
   `;
@@ -712,6 +865,7 @@ async function convertYt2Sp(url) {
 // ── INIT ───────────────────────────────────────────────────
 loadKeys();
 updateSpotifyLoginUI();
+updateYouTubeLoginUI();
 handleCallback(); // handle OAuth redirect
 setMode('sp2yt'); // init UI correctly
 if (!localStorage.getItem('sp_client_id')) {
